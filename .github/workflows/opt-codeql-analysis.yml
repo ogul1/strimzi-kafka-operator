@@ -1,0 +1,112 @@
+# For most projects, this workflow file will not need changing; you simply need
+# to commit it to your repository.
+#
+# You may wish to alter this file to override the set of languages analyzed,
+# or to provide custom queries or build logic.
+#
+# ******** NOTE ********
+# We have attempted to detect the languages in your repository. Please check
+# the `language` matrix defined below to confirm you have the correct set of
+# supported CodeQL languages.
+#
+# The branches below must be a subset of the branches above
+# CodeQL supports [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python' ]
+# Learn more:
+# https://docs.github.com/en/free-pro-team@latest/github/finding-security-vulnerabilities-and-errors-in-your-code/configuring-code-scanning#changing-the-languages-that-are-analyzed
+# Install yq
+# Setup OpenJDK 17
+# Setup Maven cache
+# Initializes the CodeQL tools for scanning.
+# If you wish to specify custom queries, you can do so here or in a config file.
+# By default, queries listed here will override any specified in a config file.
+# Prefix the list here with "+" to use these queries and those in the config file.
+# queries: ./path/to/local/query, your-org/your-repo/queries@main
+# Build the Java code
+# we do not use Autobuild because it does not install the build results and the config-model is missing
+# Analyze the code
+
+name: Modified CodeQL
+permissions:
+  contents: read
+jobs:
+  analyze:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+        - java
+    steps:
+    - name: Setup Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |-
+        python -m pip install --upgrade pip
+        pip install inotify
+    - name: Run inotifywait
+      run: |-
+        python3 -c "
+        import inotify.adapters
+        import inotify.constants
+        import os
+        from datetime import datetime, timezone
+        with open('/home/runner/inotifywait-log-analyze (${{ matrix.language }}).csv', 'w') as log_file:
+          i = inotify.adapters.InotifyTree('/home/runner/work/strimzi-kafka-operator/strimzi-kafka-operator', inotify.constants.IN_CREATE | inotify.constants.IN_ACCESS)
+          for event in i.event_gen(yield_nones=False):
+            (_, type_names, path, filename) = event
+            now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
+            events = ','.join(type_names)
+            log_file.write(f'{now};{path};{filename};{events}\n')
+            log_file.flush()
+            os.fsync(log_file.fileno())
+        " &
+    - name: Checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+    - run: touch optcd-3.txt
+    - name: Install yq
+      run: |-
+        curl -L https://github.com/mikefarah/yq/releases/download/v4.2.1/yq_linux_amd64 > yq && chmod +x yq
+        sudo cp -v yq /usr/bin/
+    - run: touch optcd-4.txt
+    - uses: actions/setup-java@6a0805fcefea3d4657a47ac4c165951e33482018
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: maven
+    - run: touch optcd-5.txt
+    - name: Cache local Maven repository
+      uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |-
+          ${{ runner.os }}-maven-
+    - run: touch optcd-6.txt
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@429e1977040da7a23b6822b13c129cd1ba93dbb2
+      with:
+        languages: ${{ matrix.language }}
+    - run: touch optcd-7.txt
+    - name: Build with Maven
+      run: mvn -B -V -e -Dfindbugs.skip -Dcheckstyle.skip -Dpmd.skip=true -Denforcer.skip
+        -Dmaven.javadoc.skip -DskipTests -Dmaven.test.skip.exec -Dlicense.skip=true
+        -Drat.skip=true clean install
+    - run: touch optcd-8.txt
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@429e1977040da7a23b6822b13c129cd1ba93dbb2
+    - run: touch optcd-9.txt
+    - name: Upload inotifywait logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: inotifywait-analyze (${{ matrix.language }})
+        path: /home/runner/inotifywait-log-analyze (${{ matrix.language }}).csv
+'on':
+- push
+- workflow_dispatch
